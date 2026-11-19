@@ -2,6 +2,11 @@
 # SPDX-License-Identifier: APACHE-2.0
 
 annotations:
+  chpock.github.io/modifications: "Chart metadata modified by chpock for downstream distribution."
+  chpock.github.io/upstream-repository: "https://github.com/bitnami/charts"
+  chpock.github.io/upstream-path: "bitnami/thanos"
+  chpock.github.io/upstream-commit: "2aac71a990b7e7c9a882bdce59855022894ac361"
+  chpock.github.io/upstream-chart-version: "17.6.0"
   images: |
     - name: os-shell
       image: docker.io/bitnami/os-shell:12-debian-12-r50
@@ -24,7 +29,7 @@ dependencies:
 description: Thanos is a highly available metrics system that can be added on top
   of existing Prometheus deployments, providing a global query view across all Prometheus
   installations.
-home: https://bitnami.com
+home: https://github.com/chpock/helm-charts
 icon: https://dyltqmyl993wv.cloudfront.net/assets/stacks/thanos/img/thanos-stack-220x234.png
 keywords:
 - analytics
@@ -32,9 +37,9 @@ keywords:
 - prometheus
 - thanos
 maintainers:
-- name: Broadcom, Inc. All Rights Reserved.
-  url: https://github.com/bitnami/charts
+- name: chpock
+  url: https://github.com/chpock
 name: thanos
 sources:
-- https://github.com/bitnami/charts/tree/main/bitnami/thanos
-version: 17.6.0
+- https://github.com/chpock/helm-charts/tree/main/charts/thanos
+version: 18.0.0

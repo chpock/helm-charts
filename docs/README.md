@@ -8,4 +8,6 @@ This repository maintains third-party Helm charts with local changes. Each chart
 
 Repository-wide guides live in `docs/`. Each chart keeps its sources and installation instructions together in `charts/<name>/`. The proposed GitHub Actions workflows are shared across charts: `.github/workflows/ci.yaml` for checks and `.github/workflows/release.yaml` for tag-triggered publication.
 
-Bitnami Thanos is the first planned import. No charts have been imported or published yet; chart paths and release numbers in these guides are illustrative.
+## Available charts
+
+- [Thanos](../charts/thanos/README.md) is based on the Bitnami chart and can be installed from source. Automated package publication is not yet configured.
