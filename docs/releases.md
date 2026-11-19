@@ -1,6 +1,6 @@
 # Builds and releases
 
-Each release belongs to one chart. Its Git tag is `release/<chart-name>/<package-version>`. For example, `release/thanos/1.0.0` selects Thanos; it neither sets the application version nor releases any other chart. The following describes the release workflow contract. Automated publication is not yet configured.
+Each release belongs to one chart. Its Git tag is `release/<chart-name>/<package-version>`. For example, `release/thanos/1.0.0` selects Thanos; it neither sets the application version nor releases any other chart. [Release chart](../.github/workflows/release.yaml) runs when a matching tag is first pushed; updating a branch does not publish a package.
 
 ## Preparing a release
 
@@ -10,7 +10,7 @@ Each release belongs to one chart. Its Git tag is `release/<chart-name>/<package
 
 ## Checking a package
 
-Check affected charts on pull requests. If shared build logic changes, include all charts that use it. Before publishing, repeat the checks against the selected chart at the tagged commit.
+[Chart CI](../.github/workflows/ci.yaml) runs on pull requests and pushes to `main`. It checks charts with changed sources or render cases, or all charts when a shared workflow, build script, or test changes. Before publishing, the release workflow runs the same package checks for the tagged chart alone. To check all charts locally, run `python3 scripts/chart_ci.py ci` from the repository root with Helm and `yq` v4 on `PATH`. Additional render cases belong in `tests/values/<chart>/*.yaml`.
 
 - For Thanos, run `helm dependency build charts/thanos` using the committed `Chart.lock`. Without the lock, `build` resolves new versions like `helm dependency update`; stop the release build rather than silently using them. A lock file cannot guarantee that a vendor still serves the dependency archives.
 - Run `helm lint`, render the chart with settings that exercise the changes, and build the `.tgz` with `helm package`. Inspect the **archive itself**: verify the package name and version, upstream coordinates, dependencies, license, and required notices. The chart-root `README.md` and `CHANGELOG.md` must be ours. No files from the chart's `upstream/` directory should be present.
@@ -18,10 +18,18 @@ Check affected charts on pull requests. If shared build logic changes, include a
 
 ## Publishing by tag
 
-The shared release workflow must select exactly one chart, match its name and version to the tag, and find exactly one nonempty changelog section for that version. An unknown chart, mismatched version, failed package check, or ambiguous release notes must stop publication.
+1. **Build:** validate the tag, chart directory, `Chart.yaml` name and exact version, and a single nonempty `## <version>` changelog section. Build and check the package before handing the `.tgz` and extracted notes to the next jobs as a workflow artifact. To rehearse this step without publishing, run `python3 scripts/chart_ci.py release release/<chart>/<version> /path/to/empty-output-directory` on the prepared revision.
+2. **Publish:** use the repository's `GITHUB_TOKEN` with `packages: write` to push the checked archive to `oci://ghcr.io/chpock/helm-charts`. If the tag exists, accept it only when its chart layer matches the validated archive byte for byte. A different package, a registry error, or insufficient access stops the job. Keep this workflow the only writer for these package names; GHCR tags are not intrinsically immutable. Protect `release/**` with GitHub tag rulesets: allow only trusted maintainers to create tags and disallow updates and deletions. Before either publishing the package or creating the GitHub Release, the workflow checks that the remote tag still resolves to the commit used to build the archive.
+3. **Release:** from a separate runner, pull the package anonymously, compare it with the validated `.tgz`, and render it. Only then create the GitHub Release and verify its notes against the tagged changelog section. This job has no package write permission.
 
-Publish only the validated package for the selected chart. Create a GitHub Release for the same Git tag using the extracted changelog section. Do not overwrite a published package version: if the package was uploaded but creating the GitHub Release failed, retry only the unfinished step. For the first release, pull the package as an intended consumer, inspect and render it, and compare the GitHub Release body with the tagged changelog section.
+**First publication of each chart:** GHCR creates new packages as **private**, even for public repositories. After the first successful push, a package administrator must set `helm-charts/<chart>` to **Public** in its GitHub package settings. If anonymous verification has already failed, use **Re-run failed jobs** on the same run. This reuses the original archive and notes without rebuilding or overwriting the package. Use the same retry procedure after a transient failure to create the GitHub Release. If a package of that name already exists, grant the repository Actions access before publishing.
 
 ## Where to obtain packages
 
-The publication endpoint and its visibility (public or private) have not been chosen. The proposed transport is OCI in GitHub Container Registry: it uses the name and version from `Chart.yaml` and does not need an `index.yaml`. Consumers that require `helm repo add` need a classic HTTP chart repository with an `index.yaml` instead. Until an endpoint is selected and the first package verified, there is no published install URL.
+Use `oci://ghcr.io/chpock/helm-charts/<chart>` with an exact published version. Look for `release/<chart>/<version>` on the [GitHub Releases page](https://github.com/chpock/helm-charts/releases). For example, after Thanos `18.0.0` is released:
+
+```sh
+helm pull oci://ghcr.io/chpock/helm-charts/thanos --version 18.0.0
+```
+
+OCI does not use `helm repo add` or an `index.yaml`. A chart with only `Unreleased` notes is not ready for publication.

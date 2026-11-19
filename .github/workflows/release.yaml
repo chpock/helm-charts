@@ -1,0 +1,114 @@
+name: Release chart
+
+on:
+  push:
+    tags: ['release/*/*']
+
+permissions: {}
+
+concurrency:
+  group: chart-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.event.created && !github.event.deleted
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+        with:
+          version: v4.3.2
+          checksum-policy: required
+      - name: Validate tag, notes and package
+        run: |
+          python3 scripts/chart_ci.py release "$GITHUB_REF_NAME" "$RUNNER_TEMP/release"
+          git rev-parse HEAD > "$RUNNER_TEMP/release/commit.sha"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: chart-release
+          path: ${{ runner.temp }}/release/
+          if-no-files-found: error
+          overwrite: true
+
+  publish:
+    needs: build
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: chart-release
+          path: ${{ runner.temp }}/release
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+        with:
+          version: v4.3.2
+          checksum-policy: required
+      - &verify-tag
+        name: Verify the remote tag still identifies the validated commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          actual=$(gh api -H 'Accept: application/vnd.github.sha' "repos/$GITHUB_REPOSITORY/commits/$GITHUB_REF")
+          if [[ ! $actual =~ ^[0-9a-f]{40}$ || $actual != "$(<"$RUNNER_TEMP/release/commit.sha")" ]]; then
+            echo 'Release tag does not match the validated commit' >&2
+            exit 1
+          fi
+      - name: Publish without replacing a version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/publish-chart.sh "$RUNNER_TEMP"/release/*.tgz
+
+  release:
+    needs: publish
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: chart-release
+          path: ${{ runner.temp }}/release
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+        with:
+          version: v4.3.2
+          checksum-policy: required
+      - name: Verify the public package as an anonymous consumer
+        shell: bash
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/anonymous-registry
+          HELM_REGISTRY_CONFIG: ${{ runner.temp }}/anonymous-registry/config.json
+        run: |
+          selector=${GITHUB_REF_NAME#release/}
+          name=${selector%/*}
+          version=${selector##*/}
+          cd "$RUNNER_TEMP"
+          helm pull "oci://ghcr.io/${GITHUB_REPOSITORY,,}/$name" --version "$version"
+          cmp "release/$name-$version.tgz" "$name-$version.tgz"
+          helm template monitoring "$name-$version.tgz" >/dev/null
+      - *verify-tag
+      - name: Create GitHub Release with the tagged changelog section
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes="$RUNNER_TEMP/release/notes.md"
+          # Creation can have succeeded even if the client lost the response.
+          if ! gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "$GITHUB_REF_NAME" --notes-file "$notes"; then
+            echo 'Checking whether the exact release already exists.'
+          fi
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json tagName,isDraft,body |
+            jq -es --arg tag "$GITHUB_REF_NAME" --rawfile notes "$notes" '
+              def normalized: gsub("\r\n"; "\n") | sub("\n$"; "");
+              length == 1 and (.[0] | .tagName == $tag and (.isDraft | not) and ((.body | normalized) == ($notes | normalized)))' >/dev/null

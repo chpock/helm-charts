@@ -1,0 +1,5 @@
+existingObjstoreSecret: thanos-objstore
+storegateway:
+  enabled: true
+query:
+  replicaCount: 2
