@@ -1,7 +1,5 @@
 # Repository instructions
 
-Write all repository documentation in English, including chart READMEs and changelogs.
-
 ## Read the guide that matches the task
 
 - Repository scope or chart availability: [repository overview](docs/README.md).
